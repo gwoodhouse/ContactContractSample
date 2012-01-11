@@ -4,5 +4,8 @@
     android:layout_height="fill_parent"
     android:orientation="vertical" >
 
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="" android:id="@+id/text"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Email:" android:id="@+id/text"/>
+    <EditText android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="someone@somewhere.com" android:text="someone@somewhere.com" android:id="@+id/email"/>
+    <Button android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Attach" android:id="@+id/attach" android:layout_gravity="center_horizontal"/>
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="" android:id="@+id/result"/>
 </LinearLayout>

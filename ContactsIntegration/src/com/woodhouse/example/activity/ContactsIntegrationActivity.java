@@ -32,6 +32,10 @@ import android.provider.ContactsContract.Contacts;
 import android.provider.ContactsContract.Data;
 import android.provider.ContactsContract.RawContacts;
 import android.util.Log;
+import android.view.View;
+import android.view.View.OnClickListener;
+import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -43,20 +47,28 @@ public class ContactsIntegrationActivity extends Activity {
     private static final int PICK_CONTACT_REQUEST = 1;
     
     private TextView mResult;
-    private String mRawContactId;
+    private String mEmail;
     
-    private String mAccountName;
-    private String mAccountType;
+    
+    private String mRawContactId;
+    private String mDataId;
  
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
-        mResult = (TextView) findViewById(R.id.text);
-        
-        startActivityForResult(new Intent(Intent.ACTION_PICK, Contacts.CONTENT_URI), PICK_CONTACT_REQUEST);
-        
+        mResult = (TextView) findViewById(R.id.result);
+        final EditText mEmailEditText = (EditText) findViewById(R.id.email);
+        Button mAttach = (Button) findViewById(R.id.attach);
+
+        mAttach.setOnClickListener(new OnClickListener() {
+			
+			public void onClick(View v) {
+				mEmail = mEmailEditText.getText().toString();
+				startActivityForResult(new Intent(Intent.ACTION_PICK, Contacts.CONTENT_URI), PICK_CONTACT_REQUEST);				
+			}
+		});        
     }    
 
     /**
@@ -87,9 +99,7 @@ public class ContactsIntegrationActivity extends Activity {
             protected Boolean doInBackground(Uri... uris) {              
                 Log.v("Retreived ContactURI", uris[0].toString());
                 
-                mRawContactId = getRawContactContainingHomeEmail(uris[0]);
-
-                return mRawContactId != null;
+                return doesContactContainHomeEmail(uris[0]);
             }
 
             @Override
@@ -108,9 +118,8 @@ public class ContactsIntegrationActivity extends Activity {
         task.execute(contactUri);
     }
     
-    private String getRawContactContainingHomeEmail(Uri contactUri) {
-    	String mRawContactIdOfHomeEmail = null;
-    	
+    private Boolean doesContactContainHomeEmail(Uri contactUri) {
+    	boolean returnValue = false;
     	Cursor mContactCursor = getContentResolver().query(contactUri, null, null, null, null);
     	Log.v("Contact", "Got Contact Cursor");
 
@@ -131,31 +140,33 @@ public class ContactsIntegrationActivity extends Activity {
             	try {
             		ArrayList<String> mRawContactIds = new ArrayList<String>();
             		while(mRawContactCursor.moveToNext()) {
-            			mAccountName = getCursorString(mRawContactCursor, RawContacts.ACCOUNT_NAME);
-            			mAccountType = getCursorString(mRawContactCursor, RawContacts.ACCOUNT_TYPE);
-            			Log.v("RawContact", "AccountName: " + mAccountName + "AccountType" + mAccountType);
             			String rawId = getCursorString(mRawContactCursor, RawContacts._ID);
             			Log.v("RawContact", "ID: " + rawId);
             			mRawContactIds.add(rawId);
             		}
             		
-            		for(String rawId : mRawContactIds) {            			
+            		for(String rawId : mRawContactIds) {
+            			// Make sure the "last checked" RawContactId is set locally for use in insert & update.
+            			mRawContactId = rawId;
             			Cursor mDataCursor = getContentResolver().query(
             					Data.CONTENT_URI,
             					null,
             					Data.RAW_CONTACT_ID + " = ? AND " + Data.MIMETYPE + " = ? AND " + Email.TYPE + " = ?",
-            					new String[] { rawId, Email.CONTENT_ITEM_TYPE, String.valueOf(Email.TYPE_HOME)},
+            					new String[] { mRawContactId, Email.CONTENT_ITEM_TYPE, String.valueOf(Email.TYPE_HOME)},
             					null);
             			            			
             			if(mDataCursor.getCount() > 0) {
-            				Log.v("Data", "Found data item with MIMETYPE and EMAIL.TYPE");
-            				mRawContactIdOfHomeEmail = rawId;
+            				mDataCursor.moveToFirst();
+            				mDataId = getCursorString(mDataCursor, Data._ID);
+            				Log.v("Data", "Found data item with MIMETYPE and EMAIL.TYPE");            				
             				mDataCursor.close();
+            				returnValue = true;
             				break;
             			} else {
             				Log.v("Data", "Data doesn't contain MIMETYPE and EMAIL.TYPE");
             				mDataCursor.close();
-            			}            			
+            			}            	
+            			returnValue = false;
             		}			        		
             	} finally {
             		mRawContactCursor.close();
@@ -166,11 +177,12 @@ public class ContactsIntegrationActivity extends Activity {
         	for(StackTraceElement ste : e.getStackTrace()) {
         		Log.w("UpdateContact", "\t" + ste.toString());
         	}
+        	throw new RuntimeException();
         } finally {			    
             mContactCursor.close();			        
         }
         
-        return mRawContactIdOfHomeEmail;
+        return returnValue;
     }
     
     private static String getCursorString(Cursor cursor, String columnName) {
@@ -182,16 +194,11 @@ public class ContactsIntegrationActivity extends Activity {
     public void insertEmailContact() {
         try {
 			ArrayList<ContentProviderOperation> ops = new ArrayList<ContentProviderOperation>();
-			
-			ops.add(ContentProviderOperation.newInsert(RawContacts.CONTENT_URI)
-			          .withValue(RawContacts.ACCOUNT_TYPE, mAccountType)
-			          .withValue(RawContacts.ACCOUNT_NAME, mAccountName)
-			          .build());
-			
+
 			ops.add(ContentProviderOperation.newInsert(Data.CONTENT_URI)
-					.withValueBackReference(Data.RAW_CONTACT_ID, 0)
+					.withValue(Data.RAW_CONTACT_ID, mRawContactId)
 					.withValue(Data.MIMETYPE, Email.CONTENT_ITEM_TYPE)
-					.withValue(Data.DATA1, "somebody@android.com")
+					.withValue(Data.DATA1, mEmail)
 					.withValue(Email.TYPE, Email.TYPE_HOME)
 					.withValue(Email.DISPLAY_NAME, "Email")
 					.build());
@@ -218,8 +225,9 @@ public class ContactsIntegrationActivity extends Activity {
 			
 			ops.add(ContentProviderOperation.newUpdate(Data.CONTENT_URI)
 				.withSelection(Data.RAW_CONTACT_ID + " = ?", new String[] {mRawContactId})
+				.withSelection(Data._ID + " = ?", new String[] {mDataId})
 				.withValue(Data.MIMETYPE, Email.CONTENT_ITEM_TYPE)
-				.withValue(Data.DATA1, "somebody@android.com")
+				.withValue(Data.DATA1, mEmail)
 				.withValue(Email.TYPE, Email.TYPE_HOME)
 				.build());
 			getContentResolver().applyBatch(ContactsContract.AUTHORITY, ops);
